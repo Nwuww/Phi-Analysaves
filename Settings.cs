@@ -23,6 +23,9 @@ public class Settings
     /// <summary>曲目列表 CSV 路径（空字符串 = 自动发现）</summary>
     public string SongListPath { get; set; } = "";
 
+    /// <summary>特征值列表（0~100）</summary>
+    public List<double> FeatThresholds { get; set; } = new() { 98, 99, 99.5 };
+
     // ---- 默认搜索目录 ----
     public string SaveDir => "save";
     public string SongListDir => "songlist";
@@ -77,5 +80,6 @@ public class Settings
         OutPath = Path.Combine("export", "out.txt");
         Depth = null;
         SongListPath = "";
+        FeatThresholds = new() { 98, 99, 99.5 };
     }
 }

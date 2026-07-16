@@ -17,7 +17,12 @@ public class CommandProcessor
     private string _currentSongPrompt = "";
     private string _currentDiffLabel = ""; // EZ/HD/IN/AT
     private double _currentDiff;
+    private string _currentDiffPrompt = ""; // 定数提示符文本
     private List<double>? _currentData;
+
+    // 导出会话
+    private string? _outFilePath;
+    private string? _outTitle;
 
     // 难度偏移
     private static readonly Dictionary<string, int> DiffOffset = new(StringComparer.OrdinalIgnoreCase)
@@ -59,7 +64,7 @@ public class CommandProcessor
         return _mode switch
         {
             AnalysisMode.Song => _currentSongPrompt,
-            AnalysisMode.Diff => $"{_currentDiff}>>  ",
+            AnalysisMode.Diff => $"{_currentDiffPrompt}>>  ",
             _ => ">> "
         };
     }
@@ -133,6 +138,7 @@ public class CommandProcessor
   set out-path <PATH>     设置导出路径（默认 export/out.txt）
   set depth <int>|max     设置检索深度（默认 max=全部存档）
   set songlist [PATH]     设置曲目列表路径（无参数时从 songlist/ 目录交互选择）
+  set feat <double...>    设置特征值列表（0~100），如: set feat 98 99 99.5
   clear                   清除所有缓存文件
   reset                   重置所有设置并清除缓存
 
@@ -140,7 +146,7 @@ public class CommandProcessor
   status                  输出读入的存档个数
   ana song -id <id> <EZ|HD|IN|AT> [-nosort]      通过 ID 和难度进入歌曲分析模式
   ana song -name <关键词> <EZ|HD|IN|AT> [-nosort] 通过歌名和难度进入歌曲分析模式
-  ana diff <定数> [-nosort]        进入定数分析模式
+  ana diff <定数> [-nosort]        进入定数分析模式（支持区间如 17-17.3）
 
 系统:
   help                    显示本帮助
@@ -232,8 +238,30 @@ public class CommandProcessor
                 _loader.LoadCsv();
                 break;
 
+            case "feat":
+                {
+                    var thresholds = new List<double>();
+                    foreach (var token in parts.Skip(2))
+                    {
+                        if (double.TryParse(token,
+                            System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            out var t))
+                        {
+                            if (t >= 0 && t <= 100)
+                                thresholds.Add(t);
+                            else
+                                Console.WriteLine($"[WARNING] 特征值 {t} 超出范围 0~100，已忽略。");
+                        }
+                    }
+                    thresholds.Sort();
+                    _settings.FeatThresholds = thresholds;
+                    Console.WriteLine($"[SET] feat = [{string.Join(", ", thresholds)}]");
+                }
+                break;
+
             default:
-                Console.WriteLine($"[ERROR] 未知设置项: {key}。可用: save-path, out-path, depth, songlist");
+                Console.WriteLine($"[ERROR] 未知设置项: {key}。可用: save-path, out-path, depth, songlist, feat");
                 break;
         }
     }
@@ -308,8 +336,8 @@ public class CommandProcessor
             Console.WriteLine("[INFO] 未检测到有效的存档。请先使用 set save-path 设置正确的存档路径。");
             return;
         }
-        int depth = _settings.Depth ?? saves.Count;
-        Console.WriteLine($"已读入 {saves.Count} 个存档，当前检索深度: {(depth == saves.Count ? "max(全部)" : depth.ToString())}");
+        int depth = _settings.Depth ?? Math.Min(saves.Count, 1000);
+        Console.WriteLine($"已读入 {saves.Count} 个存档，当前检索深度: {(_settings.Depth == null ? $"默认(min(全部, 1000)={depth})" : depth.ToString())}");
     }
 
     private void HandleAna(List<string> parts)
@@ -319,7 +347,7 @@ public class CommandProcessor
             Console.WriteLine("[ERROR] ana 需要更多参数。用法:");
             Console.WriteLine("  ana song -id <id> <EZ|HD|IN|AT> [-nosort]");
             Console.WriteLine("  ana song -name <关键词> <EZ|HD|IN|AT> [-nosort]");
-            Console.WriteLine("  ana diff <定数> [-nosort]");
+            Console.WriteLine("  ana diff <定数> [-nosort]  (支持区间: ana diff 17-17.3)");
             return;
         }
 
@@ -390,14 +418,6 @@ public class CommandProcessor
         }
         int offset = DiffOffset[diffLabel];
 
-        // 加载数据
-        var saves = _loader.GetSavesWithDepth();
-        if (saves.Count == 0)
-        {
-            Console.WriteLine("[ERROR] 没有可用的存档数据。请先检查存档路径和 status。");
-            return;
-        }
-
         SongInfo? targetSong = null;
         int listId;
 
@@ -460,6 +480,29 @@ public class CommandProcessor
         _currentSongId = saveSongId;
         _currentDiffLabel = diffLabel;
 
+        // ---- 优先检查缓存 ----
+        var cachedSong = _loader.ReadSongCache(saveSongId);
+        if (cachedSong != null)
+        {
+            Console.WriteLine($"[CACHE] 从缓存加载 {cachedSong.Accs.Count} 条记录。");
+            if (!noSort)
+                cachedSong.Accs.Sort();
+
+            _mode = AnalysisMode.Song;
+            _currentData = cachedSong.Accs;
+            _currentSongPrompt = $"{_currentSongName}.{listId} [{diffLabel}{cachedSong.ChartDiff}]>>  ";
+            Console.WriteLine($"已进入歌曲分析模式。共 {cachedSong.Accs.Count} 条记录。");
+            return;
+        }
+
+        // 加载数据（缓存未命中）
+        var saves = _loader.GetSavesWithDepth();
+        if (saves.Count == 0)
+        {
+            Console.WriteLine("[ERROR] 没有可用的存档数据。请先检查存档路径和 status。");
+            return;
+        }
+
         // 提取 acc
         Console.WriteLine($"正在从 {saves.Count} 个存档中提取 \"{_currentSongName}\" ({diffLabel}, listID={listId}, saveID={saveSongId}) 的 acc...");
         var accs = AnalysisEngine.ExtractSongAccs(saves, saveSongId);
@@ -483,7 +526,7 @@ public class CommandProcessor
             accs.Sort();
 
         // 保存缓存
-        _loader.WriteSongCache(saveSongId, accs, sort: false);
+        _loader.WriteSongCache(saveSongId, accs, chartDiff, sort: false);
 
         // 进入歌曲分析模式
         _mode = AnalysisMode.Song;
@@ -499,24 +542,50 @@ public class CommandProcessor
     {
         bool noSort = parts.Contains("-nosort");
 
-        // 提取定数值（parts[2]，除非它是 -nosort）
+        // 提取定数参数（parts[2]）
         int diffIndex = 2;
-        if (diffIndex >= parts.Count || parts[diffIndex].StartsWith('-'))
+        if (diffIndex >= parts.Count || (parts[diffIndex].StartsWith('-') && !parts[diffIndex].Contains('.')))
         {
-            Console.WriteLine("[ERROR] ana diff 需要指定定数。用法: ana diff <定数> [-nosort]");
+            Console.WriteLine("[ERROR] ana diff 需要指定定数。用法: ana diff <定数> [-nosort] 或 ana diff <从>-<到> [-nosort]");
             return;
         }
 
-        if (!double.TryParse(parts[diffIndex],
-            System.Globalization.NumberStyles.Float,
-            System.Globalization.CultureInfo.InvariantCulture,
-            out var diff))
+        var diffArg = parts[diffIndex];
+
+        // 判断区间还是单值
+        List<double> diffs;
+        string promptLabel;
+
+        if (diffArg.Contains('-') && diffArg.Count(c => c == '-') == 1)
         {
-            Console.WriteLine("[ERROR] 定数必须是数字。");
-            return;
+            // 区间: "17-17.3"
+            var rangeParts = diffArg.Split('-');
+            if (!double.TryParse(rangeParts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var from) ||
+                !double.TryParse(rangeParts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var to))
+            {
+                Console.WriteLine("[ERROR] 区间格式错误。用法: ana diff <从>-<到>");
+                return;
+            }
+            if (from > to) { (from, to) = (to, from); }
+
+            diffs = new List<double>();
+            for (double d = from; d <= to + 0.0001; d = Math.Round(d + 0.1, 1))
+                diffs.Add(d);
+
+            promptLabel = $"{from}-{to}";
+        }
+        else
+        {
+            if (!double.TryParse(diffArg, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var single))
+            {
+                Console.WriteLine("[ERROR] 定数必须是数字或区间（如 17-17.3）。");
+                return;
+            }
+            diffs = new List<double> { single };
+            promptLabel = single.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        // 加载数据
+        // 加载存档（缓存未命中时需要）
         var saves = _loader.GetSavesWithDepth();
         if (saves.Count == 0)
         {
@@ -524,28 +593,53 @@ public class CommandProcessor
             return;
         }
 
-        Console.WriteLine($"正在从 {saves.Count} 个存档中提取定数 {diff} 的所有歌曲 acc...");
-        var (totalSongs, avgAccs) = AnalysisEngine.ExtractDiffAccs(saves, diff);
+        // 对每个定数：缓存优先，否则提取
+        var allAvgAccs = new List<double>();
+        int totalSongs = 0;
+        int cachedCount = 0;
+        int scannedCount = 0;
+
+        foreach (var d in diffs)
+        {
+            var cached = _loader.ReadDiffCache(d);
+            if (cached != null)
+            {
+                totalSongs += cached.Sum;
+                allAvgAccs.AddRange(cached.AvgAccs);
+                cachedCount++;
+            }
+            else
+            {
+                Console.WriteLine($"正在提取定数 {d}...");
+                var (sum, avgAccs) = AnalysisEngine.ExtractDiffAccs(saves, d);
+                totalSongs += sum;
+                allAvgAccs.AddRange(avgAccs);
+                if (sum > 0)
+                    _loader.WriteDiffCache(d, sum, avgAccs, sort: false);
+                scannedCount++;
+            }
+        }
 
         if (totalSongs == 0)
         {
-            Console.WriteLine($"[INFO] 在 {saves.Count} 个存档中未找到定数为 {diff} 的歌曲。");
+            Console.WriteLine($"[INFO] 在 {saves.Count} 个存档中未找到定数范围 {promptLabel} 的歌曲。");
             return;
         }
 
+        if (cachedCount > 0)
+            Console.WriteLine($"[CACHE] {cachedCount} 个定数从缓存加载，{scannedCount} 个定数重新提取。");
+
         // 排序
         if (!noSort)
-            avgAccs.Sort();
-
-        // 保存缓存
-        _loader.WriteDiffCache(diff, totalSongs, avgAccs, sort: false);
+            allAvgAccs.Sort();
 
         // 进入定数分析模式
         _mode = AnalysisMode.Diff;
-        _currentDiff = diff;
-        _currentData = avgAccs;
+        _currentDiff = diffs[0];
+        _currentDiffPrompt = promptLabel;
+        _currentData = allAvgAccs;
 
-        Console.WriteLine($"已进入定数分析模式。定数 {diff}: 共 {totalSongs} 首曲目记录，{avgAccs.Count} 个存档有该定数的歌曲。");
+        Console.WriteLine($"已进入定数分析模式。{promptLabel}: 共 {totalSongs} 首曲目记录，{allAvgAccs.Count} 条存档平均acc。");
     }
 
     // ==================== 歌曲分析模式子命令 ====================
@@ -558,8 +652,10 @@ public class CommandProcessor
         if (parts.Count == 0) return;
 
         bool export = parts.Remove("-exp");
-
         var cmd = parts[0];
+
+        if (export && cmd != "exit")
+            BeginOutSession(_currentSongPrompt.Replace(">>  ", "").Trim());
 
         switch (cmd)
         {
@@ -575,13 +671,17 @@ public class CommandProcessor
             case "below":
                 CmdBelow(parts, _currentData, export);
                 break;
+            case "feat":
+                CmdFeat(_currentData, export);
+                break;
             case "exit":
+                EndOutSession();
                 _mode = AnalysisMode.None;
                 _currentData = null;
                 Console.WriteLine("已退出歌曲分析模式。缓存文件保留。");
                 break;
             default:
-                Console.WriteLine($"[ERROR] 未知命令: {cmd}。可用: avg, med, above, below, exit");
+                Console.WriteLine($"[ERROR] 未知命令: {cmd}。可用: avg, med, above, below, feat, exit");
                 break;
         }
     }
@@ -596,8 +696,10 @@ public class CommandProcessor
         if (parts.Count == 0) return;
 
         bool export = parts.Remove("-exp");
-
         var cmd = parts[0];
+
+        if (export && cmd != "exit")
+            BeginOutSession($"定数: {_currentDiffPrompt}");
 
         switch (cmd)
         {
@@ -613,13 +715,17 @@ public class CommandProcessor
             case "below":
                 CmdBelow(parts, _currentData, export);
                 break;
+            case "feat":
+                CmdFeat(_currentData, export);
+                break;
             case "exit":
+                EndOutSession();
                 _mode = AnalysisMode.None;
                 _currentData = null;
                 Console.WriteLine("已退出定数分析模式。缓存文件保留。");
                 break;
             default:
-                Console.WriteLine($"[ERROR] 未知命令: {cmd}。可用: avg, med, above, below, exit");
+                Console.WriteLine($"[ERROR] 未知命令: {cmd}。可用: avg, med, above, below, feat, exit");
                 break;
         }
     }
@@ -705,7 +811,58 @@ public class CommandProcessor
             Output($"acc < {threshold}: {ratio:F2}% ({count}/{data.Count})", export);
     }
 
+    private void CmdFeat(List<double> data, bool export)
+    {
+        if (_settings.FeatThresholds.Count == 0)
+        {
+            Output("[INFO] 未设置特征值。请先用 set feat <value...> 设置。", export);
+            return;
+        }
+        if (data.Count == 0) { Output("无数据。", export); return; }
+
+        foreach (var t in _settings.FeatThresholds)
+        {
+            var (count, ratio) = AnalysisEngine.StrictlyAbove(data, t);
+            Output($"acc > {t}: {ratio:F2}% ({count}/{data.Count})", export);
+        }
+    }
+
     // ==================== 导出 ====================
+
+    private void BeginOutSession(string title)
+    {
+        if (_outTitle == title) return;
+
+        if (_outTitle != null)
+        {
+            AppendToFile("======");
+            AppendToFile("");
+        }
+
+        if (_outFilePath == null)
+        {
+            var now = DateTime.Now;
+            var name = $"{now:HHmmss-yyyyMMdd}.txt";
+            var dir = Path.GetDirectoryName(_settings.OutPath) ?? "export";
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+            _outFilePath = Path.Combine(dir, name);
+        }
+
+        _outTitle = title;
+        AppendToFile("======");
+        AppendToFile(title);
+    }
+
+    private void EndOutSession()
+    {
+        if (_outTitle != null)
+        {
+            AppendToFile("======");
+            AppendToFile("");
+            _outTitle = null;
+        }
+    }
 
     private void Output(string line, bool export)
     {
@@ -715,12 +872,10 @@ public class CommandProcessor
 
     private void AppendToFile(string line)
     {
+        if (_outFilePath == null) return;
         try
         {
-            var dir = Path.GetDirectoryName(_settings.OutPath);
-            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                Directory.CreateDirectory(dir);
-            File.AppendAllText(_settings.OutPath, line + Environment.NewLine);
+            File.AppendAllText(_outFilePath, line + Environment.NewLine);
         }
         catch (Exception ex)
         {

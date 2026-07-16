@@ -94,7 +94,7 @@ public class DataLoader
     public List<SaveData> GetSavesWithDepth()
     {
         if (_saves == null) return new List<SaveData>();
-        int count = _settings.Depth ?? _saves.Count;
+        int count = _settings.Depth ?? Math.Min(_saves.Count, 1000);
         count = Math.Clamp(count, 1, _saves.Count);
         return _saves.Take(count).ToList();
     }
@@ -182,13 +182,13 @@ public class DataLoader
     }
 
     /// <summary>写入歌曲分析缓存</summary>
-    public void WriteSongCache(int songId, List<double> accs, bool sort)
+    public void WriteSongCache(int songId, List<double> accs, double chartDiff, bool sort)
     {
         EnsureTmpDir();
         if (sort)
             accs.Sort();
 
-        var cache = new SongCache { Accs = accs };
+        var cache = new SongCache { Accs = accs, ChartDiff = chartDiff };
         var json = JsonSerializer.Serialize(cache, new JsonSerializerOptions { WriteIndented = false });
         var filePath = Path.Combine(_settings.TmpDir, $"tmp_{songId}.json");
         File.WriteAllText(filePath, json);

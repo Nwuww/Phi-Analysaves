@@ -5,6 +5,7 @@ obj/
 # Runtime data
 tmp/
 export/
+save/
 
 # IDE
 .vs/

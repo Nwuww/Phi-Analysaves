@@ -34,6 +34,7 @@ public class SaveData
 public class SongCache
 {
     public List<double> Accs { get; set; } = new();
+    public double ChartDiff { get; set; }
 }
 
 /// <summary>
