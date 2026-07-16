@@ -1,0 +1,17 @@
+# Build
+bin/
+obj/
+
+# Runtime data
+tmp/
+export/
+
+# IDE
+.vs/
+*.user
+*.suo
+*.DotSettings.user
+
+# OS
+.DS_Store
+Thumbs.db
