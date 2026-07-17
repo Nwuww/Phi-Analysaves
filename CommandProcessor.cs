@@ -133,7 +133,7 @@ public class CommandProcessor
     private void ShowHelp()
     {
         Console.WriteLine(@"
-Analysaves v0.9.1
+Analysaves v0.1
 by 不吃猫的鱼鱼鱼
 设置:
 - set save-path [PATH]    设置存档路径（无参数时从 save/ 目录交互选择）
