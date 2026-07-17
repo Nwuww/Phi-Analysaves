@@ -1,5 +1,8 @@
 # Analysaves
 使用CLI分析格式化后的存档文件
+/save/包含一个用来测试的存档文件(只有⑨个)
+/songlist/包含一个样例songlist
+release中不包含上述文件
 
 命令列表：
 ```
