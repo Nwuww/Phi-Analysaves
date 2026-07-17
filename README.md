@@ -18,6 +18,7 @@
 - - above <double>			获取超过某个值的占比
 - - below <double>			获取低于某个值的占比
 - - debug fitting			计算拟合定数
+- - exit				退出分析模式
 - 注：在分析模式下指定-exp可导出输出内容到export/
 
 系统:
