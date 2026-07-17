@@ -1,4 +1,7 @@
-### 设置:
+Analysaves
+使用CLI分析格式化后的存档文件
+
+命令列表：
 ```
 set save-path [PATH]    设置存档路径（无参数时从 save/ 目录交互选择）
 set songlist [PATH]     设置曲目列表路径（无参数时从 songlist/ 目录交互选择）
