@@ -937,6 +937,25 @@ public class CommandProcessor
         // ---- 权重 ----
         var w = FittingCoeff.GetWeights(_currentChartDiff);
 
+        // ---- 热度补偿 ----
+        long currentValidCount = _currentData.Count(a => a >= FittingCoeff.ValidCompletionThreshold);
+        var heatSaves = _loader.GetSavesWithDepth();
+        var songValidCounts = new Dictionary<int, int>();
+        foreach (var save in heatSaves)
+        {
+            foreach (var song in save.Songs)
+            {
+                if (searchDiffs.Any(d => Math.Abs(song.Difficulty - d) < 0.0001)
+                    && song.Acc >= FittingCoeff.ValidCompletionThreshold)
+                {
+                    songValidCounts.TryGetValue(song.SongId, out int c);
+                    songValidCounts[song.SongId] = c + 1;
+                }
+            }
+        }
+        long[] allCounts = songValidCounts.Values.Select(v => (long)v).ToArray();
+        // w = FittingCoeff.ApplyHeatCompensation(w, currentValidCount, allCounts);
+
         // ---- 计算 ----
         double sa = FittingCoeff.SmoothAvg(songAvg - diffAvg);
 
