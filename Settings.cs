@@ -26,6 +26,15 @@ public class Settings
     /// <summary>特征值列表（0~100）</summary>
     public List<double> FeatThresholds { get; set; } = new() { 98, 99, 99.5 };
 
+    /// <summary>Avg 平滑函数名</summary>
+    public string AvgSmFn { get; set; } = "tanh";
+
+    /// <summary>Coeff 平滑函数名</summary>
+    public string CoeffSmFn { get; set; } = "tanh";
+
+    /// <summary>adagrad 每特征饱和系数</summary>
+    public List<double> SmFnScales { get; set; } = new() { 0.3, 0.2, 0.1 };
+
     // ---- 默认搜索目录 ----
     public string SaveDir => "save";
     public string SongListDir => "songlist";
@@ -81,5 +90,8 @@ public class Settings
         Depth = null;
         SongListPath = "";
         FeatThresholds = new() { 98, 99, 99.5 };
+        AvgSmFn = "tanh";
+        CoeffSmFn = "tanh";
+        SmFnScales = new() { 0.3, 0.2, 0.1 };
     }
 }

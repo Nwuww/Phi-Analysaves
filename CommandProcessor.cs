@@ -16,6 +16,7 @@ public class CommandProcessor
     private string _currentSongName = "";
     private string _currentSongPrompt = "";
     private string _currentDiffLabel = ""; // EZ/HD/IN/AT
+    private double _currentChartDiff;      // 当前曲目的谱面定数
     private double _currentDiff;
     private string _currentDiffPrompt = ""; // 定数提示符文本
     private List<double>? _currentData;
@@ -217,7 +218,7 @@ public class CommandProcessor
             case "depth":
                 if (value.Equals("max", StringComparison.OrdinalIgnoreCase))
                 {
-                    _settings.Depth = null;
+                    _settings.Depth = -1;
                     Console.WriteLine("[SET] depth = max（全部存档）");
                 }
                 else if (int.TryParse(value, out var d) && d >= 1)
@@ -258,6 +259,16 @@ public class CommandProcessor
                     _settings.FeatThresholds = thresholds;
                     Console.WriteLine($"[SET] feat = [{string.Join(", ", thresholds)}]");
                 }
+                break;
+
+            case "AvgSmfn":
+            case "avgsmfn":
+                ApplySmFn(parts, isAvg: true);
+                break;
+
+            case "CoeffSmfn":
+            case "coeffsmfn":
+                ApplySmFn(parts, isAvg: false);
                 break;
 
             default:
@@ -336,8 +347,19 @@ public class CommandProcessor
             Console.WriteLine("[INFO] 未检测到有效的存档。请先使用 set save-path 设置正确的存档路径。");
             return;
         }
-        int depth = _settings.Depth ?? Math.Min(saves.Count, 1000);
-        Console.WriteLine($"已读入 {saves.Count} 个存档，当前检索深度: {(_settings.Depth == null ? $"默认(min(全部, 1000)={depth})" : depth.ToString())}");
+        int depth = _settings.Depth switch
+        {
+            null => Math.Min(saves.Count, 1000),
+            -1   => saves.Count,
+            _    => _settings.Depth.Value
+        };
+        string depthLabel = _settings.Depth switch
+        {
+            null => $"默认({depth})",
+            -1   => "max(全部)",
+            _    => depth.ToString()
+        };
+        Console.WriteLine($"已读入 {saves.Count} 个存档，当前检索深度: {depthLabel}");
     }
 
     private void HandleAna(List<string> parts)
@@ -490,6 +512,7 @@ public class CommandProcessor
 
             _mode = AnalysisMode.Song;
             _currentData = cachedSong.Accs;
+            _currentChartDiff = cachedSong.ChartDiff;
             _currentSongPrompt = $"{_currentSongName}.{listId} [{diffLabel}{cachedSong.ChartDiff}]>>  ";
             Console.WriteLine($"已进入歌曲分析模式。共 {cachedSong.Accs.Count} 条记录。");
             return;
@@ -531,6 +554,7 @@ public class CommandProcessor
         // 进入歌曲分析模式
         _mode = AnalysisMode.Song;
         _currentData = accs;
+        _currentChartDiff = chartDiff;
         _currentSongPrompt = $"{_currentSongName}.{listId} [{diffLabel}{chartDiff}]>>  ";
 
         Console.WriteLine($"已进入歌曲分析模式。共 {accs.Count} 条记录。");
@@ -674,6 +698,12 @@ public class CommandProcessor
             case "feat":
                 CmdFeat(_currentData, export);
                 break;
+            case "debug":
+                if (parts.Count > 1 && parts[1] == "fitting")
+                    CmdSongDebugFitting(export);
+                else
+                    Console.WriteLine("[ERROR] debug 子命令: debug fitting");
+                break;
             case "exit":
                 EndOutSession();
                 _mode = AnalysisMode.None;
@@ -681,7 +711,7 @@ public class CommandProcessor
                 Console.WriteLine("已退出歌曲分析模式。缓存文件保留。");
                 break;
             default:
-                Console.WriteLine($"[ERROR] 未知命令: {cmd}。可用: avg, med, above, below, feat, exit");
+                Console.WriteLine($"[ERROR] 未知命令: {cmd}。可用: avg, med, above, below, feat, debug, exit");
                 break;
         }
     }
@@ -718,6 +748,12 @@ public class CommandProcessor
             case "feat":
                 CmdFeat(_currentData, export);
                 break;
+            case "debug":
+                if (parts.Count > 1 && parts[1] == "weight")
+                    CmdDiffDebugWeight(export);
+                else
+                    Console.WriteLine("[ERROR] debug 子命令: debug weight");
+                break;
             case "exit":
                 EndOutSession();
                 _mode = AnalysisMode.None;
@@ -725,7 +761,7 @@ public class CommandProcessor
                 Console.WriteLine("已退出定数分析模式。缓存文件保留。");
                 break;
             default:
-                Console.WriteLine($"[ERROR] 未知命令: {cmd}。可用: avg, med, above, below, feat, exit");
+                Console.WriteLine($"[ERROR] 未知命令: {cmd}。可用: avg, med, above, below, feat, debug, exit");
                 break;
         }
     }
@@ -825,6 +861,220 @@ public class CommandProcessor
             var (count, ratio) = AnalysisEngine.StrictlyAbove(data, t);
             Output($"acc > {t}: {ratio:F2}% ({count}/{data.Count})", export);
         }
+    }
+
+    private void CmdSongDebugFitting(bool export)
+    {
+        if (_settings.FeatThresholds.Count != 3)
+        {
+            Output("[ERROR] debug fitting 需要恰好 3 个特征值（当前 set feat 设置即可）。", export);
+            return;
+        }
+        if (_currentData == null || _currentData.Count == 0) { Output("无数据。", export); return; }
+
+        var f = _settings.FeatThresholds; // [f1, f2, f3]
+
+        // ---- 曲目自身统计 ----
+        double songAvg = AnalysisEngine.Average(_currentData);
+        double songF1 = AnalysisEngine.StrictlyAbove(_currentData, f[0]).ratio / 100.0;
+        double songF2 = AnalysisEngine.StrictlyAbove(_currentData, f[1]).ratio / 100.0;
+        double songF3 = AnalysisEngine.StrictlyAbove(_currentData, f[2]).ratio / 100.0;
+
+        // ---- 当前定数总体统计（优先缓存；>=16.8 时合并 ±0.1 区间） ----
+        List<double> diffAvgAccs = new();
+        var rangeLabel = _currentChartDiff.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        List<double> searchDiffs;
+
+        if (_currentChartDiff >= 16.8)
+        {
+            searchDiffs = new List<double>
+            {
+                Math.Round(_currentChartDiff - 0.1, 1),
+                _currentChartDiff,
+                Math.Round(_currentChartDiff + 0.1, 1)
+            };
+            rangeLabel = $"{searchDiffs[0]}-{searchDiffs[2]}";
+        }
+        else
+        {
+            searchDiffs = new List<double> { _currentChartDiff };
+        }
+
+        int cachedCount = 0;
+        var saves = _loader.GetSavesWithDepth();
+        foreach (var d in searchDiffs)
+        {
+            var cached = _loader.ReadDiffCache(d);
+            if (cached != null)
+            {
+                diffAvgAccs.AddRange(cached.AvgAccs);
+                cachedCount++;
+            }
+            else
+            {
+                var (totalSongs, accs) = AnalysisEngine.ExtractDiffAccs(saves, d);
+                diffAvgAccs.AddRange(accs);
+                if (totalSongs > 0)
+                    _loader.WriteDiffCache(d, totalSongs, accs, sort: false);
+            }
+        }
+        if (cachedCount > 0 && cachedCount < searchDiffs.Count)
+            Console.WriteLine($"[CACHE] {cachedCount}/{searchDiffs.Count} 个定数从缓存加载。");
+        else if (cachedCount == searchDiffs.Count)
+            Console.WriteLine($"[CACHE] 区间 {rangeLabel} 全部从缓存加载 ({diffAvgAccs.Count} 条)。");
+
+        if (diffAvgAccs.Count == 0)
+        {
+            Output($"[ERROR] 在存档中未找到定数区间 {rangeLabel} 的数据。", export);
+            return;
+        }
+
+        double diffAvg = AnalysisEngine.Average(diffAvgAccs);
+        double diffF1 = AnalysisEngine.StrictlyAbove(diffAvgAccs, f[0]).ratio / 100.0;
+        double diffF2 = AnalysisEngine.StrictlyAbove(diffAvgAccs, f[1]).ratio / 100.0;
+        double diffF3 = AnalysisEngine.StrictlyAbove(diffAvgAccs, f[2]).ratio / 100.0;
+
+        // ---- 权重 ----
+        var w = FittingCoeff.GetWeights(_currentChartDiff);
+
+        // ---- 计算 ----
+        double sa = FittingCoeff.SmoothAvg(songAvg - diffAvg);
+
+        // (曲目feat - 定数feat) / 定数feat，防止除零
+        double raw1 = diffF1 > 0 ? (songF1 - diffF1) / diffF1 : 0;
+        double raw2 = diffF2 > 0 ? (songF2 - diffF2) / diffF2 : 0;
+        double raw3 = diffF3 > 0 ? (songF3 - diffF3) / diffF3 : 0;
+
+        // 根据平滑函数选择：adagrad 使用逐特征自适应
+        double sc1, sc2, sc3;
+        if (_settings.CoeffSmFn == "adagrad")
+        {
+            FittingCoeff.FeatSaturationScales = _settings.SmFnScales.ToArray();
+            sc1 = FittingCoeff.SmoothCoeff_Adaptive(raw1, 0);
+            sc2 = FittingCoeff.SmoothCoeff_Adaptive(raw2, 1);
+            sc3 = FittingCoeff.SmoothCoeff_Adaptive(raw3, 2);
+        }
+        else
+        {
+            sc1 = FittingCoeff.SmoothCoeff(raw1);
+            sc2 = FittingCoeff.SmoothCoeff(raw2);
+            sc3 = FittingCoeff.SmoothCoeff(raw3);
+        }
+
+        double term0 = sa * w[0];
+        double term1 = sc1 * w[1];
+        double term2 = sc2 * w[2];
+        double term3 = sc3 * w[3];
+
+        double fittingVal = _currentChartDiff - term0 - term1 - term2 - term3;
+
+        // ---- 输出 ----
+        Output($"=== 拟合定数计算 (基准定数 {_currentChartDiff}, 区间 {rangeLabel}) ===", export);
+        Output($"权重: w0={w[0]:F4} w1={w[1]:F4} w2={w[2]:F4} w3={w[3]:F4}", export);
+        Output($"", export);
+        Output($"曲目 avg = {songAvg:F6}  |  定数 avg = {diffAvg:F6}  |  diff = {songAvg - diffAvg:F6}", export);
+        Output($"  SmoothAvg({songAvg - diffAvg:F6}) = {sa:F6}  * w0 = {term0:F6}", export);
+        Output($"", export);
+        Output($"曲目 f1 = {songF1:F4}  |  定数 f1 = {diffF1:F4}  |  偏差1 = {raw1:F4}", export);
+        Output($"  SmoothCoeff({raw1:F4}) = {sc1:F6}  * w1 = {term1:F6}", export);
+        Output($"曲目 f2 = {songF2:F4}  |  定数 f2 = {diffF2:F4}  |  偏差2 = {raw2:F4}", export);
+        Output($"  SmoothCoeff({raw2:F4}) = {sc2:F6}  * w2 = {term2:F6}", export);
+        Output($"曲目 f3 = {songF3:F4}  |  定数 f3 = {diffF3:F4}  |  偏差3 = {raw3:F4}", export);
+        Output($"  SmoothCoeff({raw3:F4}) = {sc3:F6}  * w3 = {term3:F6}", export);
+        Output($"\n", export);
+        Output($"拟合结果 = {_currentChartDiff} - {term0:F6} - {term1:F6} - {term2:F6} - {term3:F6}", export);
+        Output($"            = {fittingVal:F6}", export);
+    }
+
+    private void CmdDiffDebugWeight(bool export)
+    {
+        // 从当前定数提示符解析区间或单值
+        var prompt = _currentDiffPrompt; // 例如 "15.8-16.2" 或 "16.1"
+        List<double> diffs;
+        if (prompt.Contains('-'))
+        {
+            var parts = prompt.Split('-');
+            double from = double.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture);
+            double to = double.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
+            if (from > to) (from, to) = (to, from);
+            diffs = new List<double>();
+            for (double d = from; d <= to + 0.0001; d = Math.Round(d + 0.1, 1))
+                diffs.Add(d);
+        }
+        else
+        {
+            diffs = new List<double> { _currentDiff };
+        }
+
+        Output($"=== debug weight ({prompt}) ===", export);
+        foreach (var d in diffs)
+        {
+            var w = FittingCoeff.GetWeights(d);
+            Output($"定数 {d}: [w0={w[0]:F4}, w1={w[1]:F4}, w2={w[2]:F4}, w3={w[3]:F4}]", export);
+        }
+    }
+
+    private void ApplySmFn(List<string> parts, bool isAvg)
+    {
+        var label = isAvg ? "AvgSmfn" : "CoeffSmfn";
+        if (parts.Count < 3)
+        {
+            Console.WriteLine($"[ERROR] {label} 需要指定平滑函数名: none, tanh, bisigmoid, pseudo-huber, adagrad");
+            return;
+        }
+
+        var name = parts[2].ToLower();
+        var validNames = new[] { "none", "tanh", "bisigmoid", "pseudo-huber", "adagrad" };
+        if (!validNames.Contains(name))
+        {
+            Console.WriteLine($"[ERROR] 未知平滑函数: {name}。可用: {string.Join(", ", validNames)}");
+            return;
+        }
+
+        // adagrad 可选后接 3 个 scale 参数
+        if (name == "adagrad" && parts.Count >= 6)
+        {
+            var scales = new List<double>();
+            for (int i = 3; i <= 5 && i < parts.Count; i++)
+            {
+                if (double.TryParse(parts[i], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var s))
+                    scales.Add(s);
+            }
+            if (scales.Count == 3)
+            {
+                _settings.SmFnScales = scales;
+                FittingCoeff.FeatSaturationScales = scales.ToArray();
+            }
+            else
+                Console.WriteLine("[WARNING] adagrad 需要恰好 3 个 scale 参数，使用当前值。");
+        }
+
+        // 应用选择
+        Func<double, double, double> fn = name switch
+        {
+            "none" => (x, s) => x,
+            "tanh" => FittingCoeff.TanhSmooth,
+            "bisigmoid" => FittingCoeff.BipolarSigmoid,
+            "pseudo-huber" => FittingCoeff.PseudoHuber,
+            "adagrad" => FittingCoeff.TanhSmooth,
+            _ => FittingCoeff.TanhSmooth
+        };
+
+        if (isAvg)
+        {
+            _settings.AvgSmFn = name;
+            FittingCoeff.AvgSmfn = fn;
+        }
+        else
+        {
+            _settings.CoeffSmFn = name;
+            FittingCoeff.CoeffSmfn = fn;
+        }
+
+        Console.WriteLine($"[SET] {label} = {name}" + (name == "adagrad"
+            ? $" scales=[{string.Join(", ", _settings.SmFnScales)}]"
+            : ""));
     }
 
     // ==================== 导出 ====================

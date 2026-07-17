@@ -69,8 +69,8 @@ public class DataLoader
                 }
                 _saves.Add(save);
 
-                // 每 200 个存档报告一次进度
-                if (saveIdx % 200 == 0)
+                // 每 500 个存档报告一次进度
+                if (saveIdx % 500 == 0)
                     Console.WriteLine($"[PROGRESS] 已加载 {saveIdx} 个存档...");
             }
 
@@ -94,7 +94,12 @@ public class DataLoader
     public List<SaveData> GetSavesWithDepth()
     {
         if (_saves == null) return new List<SaveData>();
-        int count = _settings.Depth ?? Math.Min(_saves.Count, 1000);
+        int count = _settings.Depth switch
+        {
+            null => Math.Min(_saves.Count, 1000),   // 默认
+            -1   => _saves.Count,                    // max = 全部
+            _    => _settings.Depth.Value
+        };
         count = Math.Clamp(count, 1, _saves.Count);
         return _saves.Take(count).ToList();
     }
@@ -102,7 +107,7 @@ public class DataLoader
     // ==================== CSV 加载 ====================
 
     /// <summary>
-    /// 加载 num.csv，建立曲目名称↔ID 的映射。
+    /// 加载 num.csv，建立曲目名称到ID 的映射。
     /// </summary>
     public bool LoadCsv()
     {
