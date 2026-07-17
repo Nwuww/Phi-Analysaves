@@ -9,6 +9,7 @@ set out-path <PATH>     设置导出路径（默认 export/out.txt）
 set depth <int>|max     设置检索深度（默认 max=全部存档）
 set feat <double...>    设置特征值列表（0~100），如: set feat 98 99 99.5
 set avgsmfn|coeffsmfn [none|tanh|bisigmoid|pseudo-huber]
+                        设置拟合权重的平滑函数
 clear                   清除所有缓存文件
 reset                   重置所有设置并清除缓存
 
