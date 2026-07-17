@@ -17,16 +17,16 @@ namespace analysaves
         public static double DiffLowAnchor { get; set; } = 11.0;
 
         /// <summary> 高难度锚点（WHigh） </summary>
-        public static double DiffHighAnchor { get; set; } = 17.0;
+        public static double DiffHighAnchor { get; set; } = 16.6;
 
         /// <summary> 在 DiffLowAnchor 处的权重 </summary>
         public static double[] WLow { get; set; } = { 0.7, 0.2, 0.1, 0.0 };
 
         /// <summary> 在 DiffHighAnchor 处的权重 </summary>
-        public static double[] WHigh { get; set; } = { 0.4, 0.1, 0.3, 0.4 };
+        public static double[] WHigh { get; set; } = { 0.5, 0.2, 0.1, 0.2 };
 
         /// <summary> 在 DiffMax 处的期望权重 </summary>
-        public static double[] WEnd { get; set; } = { 0.3, 0.05, 0.3, 0.35 };
+        public static double[] WEnd { get; set; } = { 0.3, 0.0, 0.3, 0.4 };
 
         /// <summary> w3增长曲率 </summary>
         public static double CurveK { get; set; } = 1.2;
@@ -86,6 +86,7 @@ namespace analysaves
             return new List<double> { w0, w1, w2, w3 };
         }
 
+        ///////////////////////////// 平滑函数 /////////////////////////////
         /// <summary> 偏差的饱和上限（avg占比阈值）
         public static double AvgSaturation { get; set; } = 0.3;
 
@@ -125,6 +126,71 @@ namespace analysaves
         public static double SmoothCoeff(double relativeDeviation)
         {
             return CoeffSmfn(relativeDeviation, CoeffSaturation);
+        }
+
+        ///////////////////////////// 热度补偿 /////////////////////////////
+        /// <summary> 有效成绩的最低完成度阈值 </summary>
+        public static double ValidCompletionThreshold { get; set; } = 95.0;
+
+        /// <summary> 过热触发倍数 </summary>
+        public static double HeatTriggerMultiplier { get; set; } = 1.2;
+
+        /// <summary> 过热倍数上限 </summary>
+        public static double HeatMaxMultiplier { get; set; } = 2.0;
+
+        /// <summary> 最大权重转移比例（w0 最多转移多少给 w3） </summary>
+        public static double MaxTransferRate { get; set; } = 0.8;
+
+        /// <summary>
+        /// 根据关卡热度调整权重列表 [w0, w1, w2, w3]
+        /// </summary>
+        /// <param name="baseWeights">由 GetWeights 计算出的基础权重</param>
+        /// <param name="currentCount">当前关卡的有效成绩数量</param>
+        /// <param name="allCounts">同难度下所有关卡的有效成绩数量数组</param>
+        /// <returns>调整后的权重列表</returns>
+        public static List<double> ApplyHeatCompensation(
+            List<double> baseWeights,
+            long currentCount,
+            long[] allCounts)
+        {
+            // 如果同难度只有 1 个关卡或数据不足不处理
+            if (allCounts == null || allCounts.Length <= 1)
+                return baseWeights;
+
+            long totalCount = allCounts.Sum();
+            if (totalCount == 0) return baseWeights;
+
+            // 计算占比
+            double share = (double)currentCount / totalCount;
+            double avgShare = 1.0 / allCounts.Length;
+
+            // 计算过热系数 H
+            double rawHot = share / avgShare;
+            double h = 0;
+            if (rawHot > HeatTriggerMultiplier)
+            {
+                h = (rawHot - HeatTriggerMultiplier) / (HeatMaxMultiplier - HeatTriggerMultiplier);
+                h = Math.Clamp(h, 0.0, 1.0);
+            }
+
+            // 未过热直接返回原权重
+            if (h <= 0) return baseWeights;
+
+            // 权重转移：w0 -> w3
+            double w0 = baseWeights[0];
+            double w3 = baseWeights[3];
+            double delta = w0 * h * MaxTransferRate;
+
+            // 确保 w0 不会减到负
+            delta = Math.Min(delta, w0 * 0.95);
+
+            List<double> adjusted = new List<double>(baseWeights);
+            adjusted[0] = w0 - delta;
+            adjusted[3] = w3 + delta;
+
+            Console.WriteLine($"热度系数 H={h:F3}, 转移量 Δ={delta:F3}, 新权重=[{string.Join(", ", adjusted)}]");
+
+            return adjusted;
         }
     }
 }

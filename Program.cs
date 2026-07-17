@@ -53,6 +53,35 @@ class Program
 
         // 进入命令循环
         var processor = new CommandProcessor(settings, loader);
+
+        // 强制应用默认平滑函数（修复 FittingCoeff 静态初始化顺序问题）
+        ApplyDefaultSmFns(settings);
+
         processor.Run();
+    }
+
+    static void ApplyDefaultSmFns(Settings s)
+    {
+        // Avg
+        FittingCoeff.AvgSmfn = s.AvgSmFn switch
+        {
+            "none" => (x, _) => x,
+            "tanh" => FittingCoeff.TanhSmooth,
+            "bisigmoid" => FittingCoeff.BipolarSigmoid,
+            "pseudo-huber" => FittingCoeff.PseudoHuber,
+            "adagrad" => FittingCoeff.TanhSmooth,
+            _ => FittingCoeff.TanhSmooth
+        };
+        // Coeff
+        FittingCoeff.CoeffSmfn = s.CoeffSmFn switch
+        {
+            "none" => (x, _) => x,
+            "tanh" => FittingCoeff.TanhSmooth,
+            "bisigmoid" => FittingCoeff.BipolarSigmoid,
+            "pseudo-huber" => FittingCoeff.PseudoHuber,
+            "adagrad" => FittingCoeff.TanhSmooth,
+            _ => FittingCoeff.TanhSmooth
+        };
+        FittingCoeff.FeatSaturationScales = s.SmFnScales.ToArray();
     }
 }

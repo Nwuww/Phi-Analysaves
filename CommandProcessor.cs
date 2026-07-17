@@ -954,7 +954,19 @@ public class CommandProcessor
             }
         }
         long[] allCounts = songValidCounts.Values.Select(v => (long)v).ToArray();
-        // w = FittingCoeff.ApplyHeatCompensation(w, currentValidCount, allCounts);
+        double originalW0 = w[0];
+        w = FittingCoeff.ApplyHeatCompensation(w, currentValidCount, allCounts);
+
+        // 过热生效 → 补偿曲目 avg 和 f1
+        double heatH = 0;
+        if (Math.Abs(w[0] - originalW0) > 0.0001)
+        {
+            double delta = originalW0 - w[0];
+            heatH = delta / (originalW0 * FittingCoeff.MaxTransferRate);
+            songAvg -= heatH;
+            songF1 -= heatH * 0.8;
+            Console.WriteLine($"[HEAT] 过热系数 H={heatH:F3}, 曲目 avg→{songAvg:F4}, f1→{songF1:F4}");
+        }
 
         // ---- 计算 ----
         double sa = FittingCoeff.SmoothAvg(songAvg - diffAvg);
