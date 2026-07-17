@@ -104,7 +104,7 @@ namespace analysaves
         public static readonly Func<double, double, double> BipolarSigmoid = (x, saturation)
             => saturation * (2.0 * (1.0 / (1.0 + Math.Exp(-2.0 * x / saturation))) - 1.0);
 
-        // 我超 突然发现其实平滑的原理和梯度下降算法神似，试试其他几个
+        // 突然发现其实平滑的原理和梯度下降算法神似，试试其他几个
         // pseudo-huber loss 放大微小差距 适合高定数
         public static readonly Func<double, double, double> PseudoHuber = (x, saturation)
             => (x>=0 ? 1 : -1) * Math.Pow(saturation, 2) * (Math.Sqrt(1.0 + Math.Pow(x / saturation, 2)) - 1.0);
