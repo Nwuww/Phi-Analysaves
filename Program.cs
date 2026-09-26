@@ -10,7 +10,6 @@ class Program
         Console.WriteLine("初始化...");
         Console.WriteLine($"[INFO] 工作目录: {Directory.GetCurrentDirectory()}");
 
-        // ---- 自动发现存档文件 ----
         var saveDirFull = Path.GetFullPath(settings.SaveDir);
         var allSaves = Settings.DiscoverAll(settings.SaveDir, "*.json");
         if (allSaves.Count > 1)

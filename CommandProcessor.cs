@@ -966,7 +966,7 @@ by 不吃猫的鱼鱼鱼
         double originalW0 = w[0];
         w = FittingCoeff.ApplyHeatCompensation(w, currentValidCount, allCounts);
 
-        // 过热生效 → 补偿曲目 avg 和 f1
+        // 过热生效 -> 补偿曲目 avg 和 f1
         double heatH = 0;
         if (Math.Abs(w[0] - originalW0) > 0.0001)
         {
@@ -974,7 +974,7 @@ by 不吃猫的鱼鱼鱼
             heatH = delta / (originalW0 * FittingCoeff.MaxTransferRate);
             songAvg -= heatH;
             songF1 -= heatH * 0.8;
-            Console.WriteLine($"[HEAT] 过热系数 H={heatH:F3}, 曲目 avg→{songAvg:F4}, f1→{songF1:F4}");
+            Console.WriteLine($"[HEAT] 过热系数 H={heatH:F3}, 曲目 avg->{songAvg:F4}, f1->{songF1:F4}");
         }
 
         // ---- 计算 ----
