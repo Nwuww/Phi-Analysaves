@@ -133,7 +133,7 @@ public class CommandProcessor
     private void ShowHelp()
     {
         Console.WriteLine(@"
-Analysaves v0.1
+Analysaves v0.1 dev
 by 不吃猫的鱼鱼鱼
 设置:
 - set save-path [PATH]    设置存档路径（无参数时从 save/ 目录交互选择）
@@ -966,7 +966,7 @@ by 不吃猫的鱼鱼鱼
         double originalW0 = w[0];
         w = FittingCoeff.ApplyHeatCompensation(w, currentValidCount, allCounts);
 
-        // 过热生效 → 补偿曲目 avg 和 f1
+        // 过热生效 -> 补偿曲目 avg 和 f1
         double heatH = 0;
         if (Math.Abs(w[0] - originalW0) > 0.0001)
         {
@@ -974,7 +974,7 @@ by 不吃猫的鱼鱼鱼
             heatH = delta / (originalW0 * FittingCoeff.MaxTransferRate);
             songAvg -= heatH;
             songF1 -= heatH * 0.8;
-            Console.WriteLine($"[HEAT] 过热系数 H={heatH:F3}, 曲目 avg→{songAvg:F4}, f1→{songF1:F4}");
+            Console.WriteLine($"[HEAT] 过热系数 H={heatH:F3}, 曲目 avg->{songAvg:F4}, f1->{songF1:F4}");
         }
 
         // ---- 计算 ----

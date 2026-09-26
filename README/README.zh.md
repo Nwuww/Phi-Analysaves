@@ -1,4 +1,7 @@
 # Analysaves
+<!-- README-I18N:START -->
+[English](./README.md) | **汉语**
+<!-- README-I18N:END -->
 使用CLI分析格式化后的存档文件
 
 - /save/包含一个用来测试的存档文件(只有⑨个)

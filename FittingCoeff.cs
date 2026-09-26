@@ -14,7 +14,7 @@ namespace analysaves
         public static double DiffMax { get; set; } = 17.6;
 
         /// <summary> 低难度锚点（WLow） </summary>
-        public static double DiffLowAnchor { get; set; } = 11.0;
+        public static double DiffLowAnchor { get; set; } = 12.0;
 
         /// <summary> 高难度锚点（WHigh） </summary>
         public static double DiffHighAnchor { get; set; } = 16.6;
@@ -26,7 +26,7 @@ namespace analysaves
         public static double[] WHigh { get; set; } = { 0.5, 0.2, 0.1, 0.2 };
 
         /// <summary> 在 DiffMax 处的期望权重 </summary>
-        public static double[] WEnd { get; set; } = { 0.3, 0.0, 0.3, 0.4 };
+        public static double[] WEnd { get; set; } = { 0.3, 0.1, 0.3, 0.3 };
 
         /// <summary> w3增长曲率 </summary>
         public static double CurveK { get; set; } = 1.2;
@@ -130,7 +130,7 @@ namespace analysaves
 
         ///////////////////////////// 热度补偿 /////////////////////////////
         /// <summary> 有效成绩的最低完成度阈值 </summary>
-        public static double ValidCompletionThreshold { get; set; } = 95.0;
+        public static double ValidCompletionThreshold { get; set; } = 97.0;
 
         /// <summary> 过热触发倍数 </summary>
         public static double HeatTriggerMultiplier { get; set; } = 1.2;
@@ -188,7 +188,7 @@ namespace analysaves
             adjusted[0] = w0 - delta;
             adjusted[3] = w3 + delta;
 
-            Console.WriteLine($"热度系数 H={h:F3}, 转移量 Δ={delta:F3}, 新权重=[{string.Join(", ", adjusted)}]");
+            Console.WriteLine($"热度系数 H={h:F3}, delta={delta:F3}, 新权重=[{string.Join(", ", adjusted)}]");
 
             return adjusted;
         }
